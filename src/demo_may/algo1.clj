@@ -3,49 +3,22 @@
 
 ; join
 
-(def a-data "init" 
-  (fn [n] ; empty connections map to start
-    (atom {:n n :all-connections {} })))
+(def stats (atom {:runs-ct 1 0 0 1 8}))
+(def circuit-break (fn [s] 
+                   (let [run (:runs-ct s)]
+                     (if (> (s run) 20) (throw "Circuit break") s))))
+(def record-step (fn [s] 
+                   (let [run (:runs-ct s)]
+                     (circuit-break s)
+                     (assoc s run (inc (s run))))))
+(def start-record (fn [s] 
+                    (let [run (inc (:runs-ct s))] 
+                      (assoc s :runs-ct run run 0))))
 
 (def -simple-connected
   (fn [all-conns left right]
     (let [left-conns (get all-conns left)]
       (and (some? left-conns) (contains? left-conns right)))))
-
-(def stats (atom {:runs-ct 1 0 0 1 8}))
-(def circuit-break (fn [s] 
-                   (let [run (:runs-ct s)]
-                     ; (print (str (inc (s run)) " "))
-                     (if (> (s run) 20)
-                       (throw "Circuit break")
-                       s)
-                     )))
-(def record-step (fn [s] 
-                   (let [run (:runs-ct s)]
-                     ; (print (str (inc (s run)) " "))
-                     (circuit-break s)
-                     (assoc s run (inc (s run)))
-                     )))
-(def start-record (fn [s] 
-                    (let [run (inc (:runs-ct s))] 
-                      ; (println (str "run " run))
-                      (assoc s :run-ct run run 0)
-                      )))
-
-; stack overflow @ 1000?
-(def -recur-connected-mixedup
-  (fn [all-conns left right]
-    (swap! stats record-step)
-    (if (-simple-connected all-conns left right)
-      true
-      (loop [left-conns (get all-conns left)]
-        ; (swap! stats inc)
-        (if (or (nil? left-conns) (empty? left-conns))
-          false
-          (if (-recur-connected-mixedup 
-               all-conns (first left-conns) right)
-            true
-            (recur (rest left-conns))))))))
 
 ; trampoline...
 (def -recur-connected-nostack
@@ -76,10 +49,10 @@
           ordered (sorted-set a b)
           left (first ordered)
           right (second ordered)                                
-        ;  result (-simple-connected all-conns left right)
-        ;  result (-recur-connected-mixedup all-conns left right)
-          result (trampoline 
-                  -recur-connected-nostack all-conns #{left} right #{})]
+          result (if (and (contains? all-conns left) (contains? all-conns right))
+                   (trampoline 
+                         -recur-connected-nostack all-conns #{left} right #{})
+                   false)]
       (println (str "stats=" @stats))
       result)))
 
@@ -105,6 +78,10 @@
     (swap! data -join a b)
     data))
 
+(def a-data "init" 
+  (fn [n] ; empty connections map to start
+    (atom {:n n :all-connections {} })))
+
 (def a-maketestdata "e.g. 1000 25 5000 - not sparse"
   (fn [xs ys max]
     (let [test-data (a-data max) ; atom
@@ -117,7 +94,6 @@
       (swap! test-data #(assoc % :all-connections (into (sorted-map) (:all-connections %))))
       (spit (str "data." max "_" (* xs ys) ".log-it") @test-data)
       test-data)))
-
 
 (def a-check
   (fn [a-data f]
