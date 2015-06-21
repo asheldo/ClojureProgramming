@@ -13,9 +13,17 @@
       (and (some? left-conns) (contains? left-conns right)))))
 
 (def stats (atom {:runs-ct 1 0 0 1 8}))
+(def circuit-break (fn [s] 
+                   (let [run (:runs-ct s)]
+                     ; (print (str (inc (s run)) " "))
+                     (if (> (s run) 20)
+                       (throw "Circuit break")
+                       s)
+                     )))
 (def record-step (fn [s] 
                    (let [run (:runs-ct s)]
                      ; (print (str (inc (s run)) " "))
+                     (circuit-break s)
                      (assoc s run (inc (s run)))
                      )))
 (def start-record (fn [s] 
@@ -41,7 +49,7 @@
 
 ; trampoline...
 (def -recur-connected-nostack
-  (fn [all-conns left-set right]
+  (fn [all-conns left-set right seen-set]
     (swap! stats record-step)
     (if (or (= 0 (count left-set)))
       false
@@ -51,13 +59,15 @@
                           (not (-simple-connected all-conns left right))] 
                       left)))
         true
-        (let [left-conns (reduce 
-                                       ; #(apply conj %1 (get all-conns %2)) 
-                                        ; #(conj %1 (get all-conns %2))
-                          #(clojure.set/union %1 (get all-conns %2))
-                          #{} left-set)]
+        (let [left-conns 
+              (clojure.set/difference ; remove already seen
+               (reduce #(clojure.set/union %1 (get all-conns %2))
+                       #{} left-set)
+               seen-set)
+              seen (clojure.set/union seen-set left-set)]
           (println left-conns)
-          #(-recur-connected-nostack all-conns left-conns right))))))
+          (println seen)
+          #(-recur-connected-nostack all-conns left-conns right seen))))))
 
 (def a-connected
   (fn [data-atom a b]
@@ -69,7 +79,7 @@
         ;  result (-simple-connected all-conns left right)
         ;  result (-recur-connected-mixedup all-conns left right)
           result (trampoline 
-                  -recur-connected-nostack all-conns #{left} right)]
+                  -recur-connected-nostack all-conns #{left} right #{})]
       (println (str "stats=" @stats))
       result)))
 
@@ -78,10 +88,17 @@
     (let [ordered (sorted-set a b)
           left (first ordered)
           right (second ordered) ; always store connection with left
-          connected-set (get-in data [:all-connections left]) 
-          updated-set (if (nil? connected-set)
-                        (hash-set right) (conj connected-set right))]
-      (assoc-in data [:all-connections left] updated-set))))
+          left-set (get-in data [:all-connections left]) 
+          right-set (get-in data [:all-connections right]) 
+          update-left (if (nil? left-set)
+                        (hash-set right) 
+                        (conj left-set right))
+          update-right (if (nil? right-set)
+                        (hash-set left) 
+                        (conj right-set left))]
+      (-> data 
+          (assoc-in [:all-connections left] update-left)
+          (assoc-in [:all-connections right] update-right)))))
 
 (def a-join "join two objects/nodes"
   (fn [data a b]
