@@ -6,53 +6,57 @@
 (def stats (atom {:runs-ct 1 0 0 1 8}))
 (def circuit-break (fn [s] 
                    (let [run (:runs-ct s)]
-                     (if (> (s run) 20) (throw "Circuit break") s))))
+                     (if (> (s run) 40) (throw "Circuit break") s))))
 (def record-step (fn [s] 
                    (let [run (:runs-ct s)]
                      (circuit-break s)
                      (assoc s run (inc (s run))))))
 (def start-record (fn [s] 
                     (let [run (inc (:runs-ct s))] 
-                      (assoc s :runs-ct run run 0))))
+                      (assoc s :runs-ct run run 0 
+                             :start-time (. System currentTimeMillis)))))
+(def end-record (fn [s] 
+                  (assoc s :end-time (. System currentTimeMillis))))
 
 (def -simple-connected
   (fn [all-conns left right]
     (let [left-conns (get all-conns left)]
       (and (some? left-conns) (contains? left-conns right)))))
 
-; trampoline...
-(def -recur-connected-nostack
-  (fn [all-conns left-set right seen-set]
+; trampoline for tail recursion...
+(def -recur-connected-lazy "Not eager b/c stops building component if A-B join is found. "
+  (fn [all left-set right component]
     (swap! stats record-step)
-    (if (or (= 0 (count left-set)))
-      false
-      (if (> (count left-set) 
-             (count (for [left left-set 
-                          :while 
-                          (not (-simple-connected all-conns left right))] 
-                      left)))
-        true
-        (let [left-conns 
-              (clojure.set/difference ; remove already seen
-               (reduce #(clojure.set/union %1 (get all-conns %2))
-                       #{} left-set)
-               seen-set)
-              seen (clojure.set/union seen-set left-set)]
-          (println left-conns)
-          (println seen)
-          #(-recur-connected-nostack all-conns left-conns right seen))))))
+    (if (or (= 0 (count left-set))) ; no more conns we haven't checked
+      (let [_ (swap! stats #(assoc % :seen (count component)))]
+        false) ; will end trampoline jumping
+      (let [not-conn-set (for [left left-set 
+                               :when (not (-simple-connected all left right))] 
+                           left)
+            connection (clojure.set/difference left-set not-conn-set)]
+        (if (< 0 (count connection)) 
+          (let [_ (swap! stats #(assoc % :path (conj [] (first connection))
+                                       :seen (count component)))] 
+            true) ; will end trampoline jumping
+          (let [connections (reduce #(clojure.set/union %1 (get all %2)) #{} left-set)
+                check-set (clojure.set/difference connections component)
+                grow-component (clojure.set/union component left-set)]
+            (println check-set)
+            #(-recur-connected-lazy all check-set right grow-component)))))))
 
-(def a-connected
+(def a-connected-lazy "Not eager b/c stops building component once A-B join is found in data."
   (fn [data-atom a b]
     (swap! stats start-record)
-    (let [all-conns (:all-connections @data-atom)
+    (let [all (:all-connections @data-atom)
           ordered (sorted-set a b)
           left (first ordered)
-          right (second ordered)                                
-          result (if (and (contains? all-conns left) (contains? all-conns right))
+          right (second ordered)
+          component #{}
+          result (if (and (contains? all left) (contains? all right))
                    (trampoline 
-                         -recur-connected-nostack all-conns #{left} right #{})
+                    -recur-connected-lazy all #{left} right component)
                    false)]
+      (swap! stats end-record)
       (println (str "stats=" @stats))
       result)))
 
@@ -82,7 +86,7 @@
   (fn [n] ; empty connections map to start
     (atom {:n n :all-connections {} })))
 
-(def a-maketestdata "e.g. 1000 25 5000 - not sparse"
+(def a-maketestdata "e.g. xs=1000 ys=25 max=5000 - not sparse"
   (fn [xs ys max]
     (let [test-data (a-data max) ; atom
           half-max (int (* 0.5 max))]
@@ -101,10 +105,10 @@
            :when (f (get-in @a-data [:all-connections n]))] 
        n)))
 
-(def a-checksparse
+(def a-checksparse ":when some?"
   (fn [a-data]
     (a-check a-data some?)))
 
-(def a-checkdense
+(def a-checkdense ":when nil?"
   (fn [a-data]
     (a-check a-data nil?)))
