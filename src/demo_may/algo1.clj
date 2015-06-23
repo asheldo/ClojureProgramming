@@ -5,19 +5,22 @@
 
 (def stats (atom {:runs-ct 1 
                   0 0}))
+(def -runs-mod (fn [s] (mod (:runs-ct s) 5)))
+(def start-record (fn [s] 
+                    (let [run (inc (-runs-mod s))] 
+                      (assoc s :runs-ct run run 0 :seen 0 :path []
+                             :start-time (. System currentTimeMillis)))))
 (def circuit-break (fn [s] 
-                   (let [run (:runs-ct s)]
-                     (if (> (s run) 40) (throw "Circuit break") s))))
+                     (let [max-steps 100]
+                       (if (> (s (:runs-ct s)) max-steps)
+                         (throw (Exception. (str "Circuit break: " s)))
+                         s))))
 (def record-step (fn [s msg] 
-                   (let [run (:runs-ct s)]
+                   (let [run (-runs-mod s)]
                      (print msg) (circuit-break s)
                      (assoc s run (inc (s run))))))
-(def start-record (fn [s] 
-                    (let [run (inc (:runs-ct s))] 
-                      (assoc s :runs-ct run run 0 
-                             :start-time (. System currentTimeMillis)))))
-(def end-record (fn [s] 
-                  (assoc s :end-time (. System currentTimeMillis))))
+(def end-record (fn [s] (assoc s 
+                          :end-time (. System currentTimeMillis))))
 
 (def -simple-connected
   (fn [all-conns left right]
@@ -42,7 +45,7 @@
           (let [connections (reduce #(clojure.set/union %1 (get all %2)) #{} left-set)
                 check-set (clojure.set/difference connections component)
                 grow-component (clojure.set/union component left-set)]
-            (println check-set)
+            (println (take 10 check-set))
             #(-recur-connected-lazy all check-set right grow-component)))))))
 
 (def a-connected-lazy "Not eager b/c stops building component once A-B join is found in data."
@@ -66,20 +69,12 @@
 
 (def -join
   (fn [data a b]
-    (let [ordered (sorted-set a b)
-          left (first ordered)
-          right (second ordered) ; always store connection with left
-          left-set (get-in data [:all-connections left]) 
-          right-set (get-in data [:all-connections right]) 
-          update-left (if (nil? left-set)
-                        (hash-set right) 
-                        (conj left-set right))
-          update-right (if (nil? right-set)
-                        (hash-set left) 
-                        (conj right-set left))]
-      (-> data 
-          (assoc-in [:all-connections left] update-left)
-          (assoc-in [:all-connections right] update-right)))))
+    (let [a-set (get-in data [:all-connections a]) 
+          b-set (get-in data [:all-connections b]) 
+          update-a (if (nil? a-set) (hash-set b) (conj a-set b))
+          update-b (if (nil? b-set) (hash-set a) (conj b-set a))]
+      (-> data (assoc-in [:all-connections a] update-a)
+          (assoc-in [:all-connections b] update-b)))))
 
 (def a-join "join two objects/nodes"
   (fn [data a b]
@@ -92,7 +87,9 @@
   (fn [n] ; empty connections map to start
     (atom {:n n :all-connections {dummy-object #{ dummy-object}} })))
 
-(def a-maketestdata "e.g. xs=1000 ys=25 max=5000 - not sparse"
+(def a-maketestdata 
+  "e.g. xs=1000 ys=25 max=5000 - not sparse.
+   Then => (for [a (range 0 10) b (range 4990 5000) :when (a-connected-lazy at a b))] [a b])"
   (fn [xs ys max]
     (let [test-data (a-data max) ; atom
           half-max (int (* 0.5 max))]
@@ -102,7 +99,8 @@
          ; (println (str x "," y))
         (a-join test-data left right))
       (swap! test-data #(assoc % :all-connections (into (sorted-map) (:all-connections %))))
-      (spit (str "data." max "_" (* xs ys) ".log-it") @test-data)
+      (if (< max 10000)
+        (spit (str "data." max "_" (* xs ys) ".log-it") @test-data))
       test-data)))
 
 (def a-check
