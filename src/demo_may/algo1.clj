@@ -3,13 +3,14 @@
 
 ; join
 
-(def stats (atom {:runs-ct 1 0 0 1 8}))
+(def stats (atom {:runs-ct 1 
+                  0 0}))
 (def circuit-break (fn [s] 
                    (let [run (:runs-ct s)]
                      (if (> (s run) 40) (throw "Circuit break") s))))
-(def record-step (fn [s] 
+(def record-step (fn [s msg] 
                    (let [run (:runs-ct s)]
-                     (circuit-break s)
+                     (print msg) (circuit-break s)
                      (assoc s run (inc (s run))))))
 (def start-record (fn [s] 
                     (let [run (inc (:runs-ct s))] 
@@ -26,7 +27,7 @@
 ; trampoline for tail recursion...
 (def -recur-connected-lazy "Not eager b/c stops building component if A-B join is found. "
   (fn [all left-set right component]
-    (swap! stats record-step)
+    (swap! stats record-step "") ; (str "left+comp: " (+ (count left-set) (count component)))
     (if (or (= 0 (count left-set))) ; no more conns we haven't checked
       (let [_ (swap! stats #(assoc % :seen (count component)))]
         false) ; will end trampoline jumping
@@ -36,7 +37,7 @@
             connection (clojure.set/difference left-set not-conn-set)]
         (if (< 0 (count connection)) 
           (let [_ (swap! stats #(assoc % :path (conj [] (first connection))
-                                       :seen (count component)))] 
+                                       :seen (+ (count left-set) (count component))))] 
             true) ; will end trampoline jumping
           (let [connections (reduce #(clojure.set/union %1 (get all %2)) #{} left-set)
                 check-set (clojure.set/difference connections component)
@@ -48,15 +49,18 @@
   (fn [data-atom a b]
     (swap! stats start-record)
     (let [all (:all-connections @data-atom)
-          ordered (sorted-set a b)
+          ordered (list a b)
           left (first ordered)
           right (second ordered)
           component #{}
-          result (if (and (contains? all left) (contains? all right))
+          has-l (contains? all left) 
+          has-r (contains? all right)
+          ok [left has-l right has-r]
+          result (if (and has-l has-r)
                    (trampoline 
                     -recur-connected-lazy all #{left} right component)
                    false)]
-      (swap! stats end-record)
+      (swap! stats #(assoc (end-record %) :ok ok))
       (println (str "stats=" @stats))
       result)))
 
@@ -82,9 +86,11 @@
     (swap! data -join a b)
     data))
 
+(def dummy-object (. Integer MAX_VALUE)); for getting full component, positive for sort
+
 (def a-data "init" 
   (fn [n] ; empty connections map to start
-    (atom {:n n :all-connections {} })))
+    (atom {:n n :all-connections {dummy-object #{ dummy-object}} })))
 
 (def a-maketestdata "e.g. xs=1000 ys=25 max=5000 - not sparse"
   (fn [xs ys max]
