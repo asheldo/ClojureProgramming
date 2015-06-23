@@ -3,8 +3,7 @@
 
 ; join
 
-(def stats (atom {:runs-ct 1 
-                  0 0}))
+(def stats (atom {:runs-ct 1 }))
 (def -runs-mod (fn [s] (mod (:runs-ct s) 5)))
 (def start-record (fn [s] 
                     (let [run (inc (-runs-mod s))] 
@@ -16,7 +15,7 @@
                          (throw (Exception. (str "Circuit break: " s)))
                          s))))
 (def record-step (fn [s msg] 
-                   (let [run (-runs-mod s)]
+                   (let [run (:runs-ct s)]
                      (print msg) (circuit-break s)
                      (assoc s run (inc (s run))))))
 (def end-record (fn [s] (assoc s 
