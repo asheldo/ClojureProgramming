@@ -1,4 +1,7 @@
+;; algo1
+;;
 (ns demo-may.algo1
+  (:require [demo-may.utils-union :as uu])
   )
 
 ; join
@@ -75,34 +78,64 @@
       (-> data (assoc-in [:all-connections a] update-a)
           (assoc-in [:all-connections b] update-b)))))
 
-(def a-join "join two objects/nodes"
+;; deprecated
+  (def -simple-join "join two objects/nodes"
   (fn [data a b]
     (swap! data -join a b)
     data))
 
-(def dummy-object (. Integer MAX_VALUE)); for getting full component, positive for sort
-
+;; starting data
+(def dummy-object (. Integer MAX_VALUE)); get full component, > 0 for sort
 (def a-data "init" 
   (fn [n] ; empty connections map to start
     (atom {:n n :all-connections {dummy-object #{ dummy-object}} })))
 
-(def a-maketestdata 
-  "e.g. xs=1000 ys=25 max=5000 - not sparse.
-   Then => (for [a (range 0 10) b (range 4990 5000) :when (a-connected-lazy at a b))] [a b])"
+;;
+;; test stuff
+;;
+
+(def -log-it
+  "e.g. xs=1000 ys=25 max=5000 - not sparse. Connect bottom half to top half (arbitrary)"
+  (fn [test-data file xs ys max]
+    (if (and
+         (< (* xs ys) 20000) (contains? @test-data :all-connections))      ; sort and 
+      (do
+        (swap! test-data #(assoc % :all-connections (into (sorted-map) (:all-connections %))))
+        (spit file @test-data)
+        (println file)))))
+
+; FIXME
+(def -make-low-high-pairs
+  "e.g. xs=1000 ys=25 max=5000 - not sparse. Connect bottom half to top half (arbitrary)"
   (fn [xs ys max]
-    (let [test-data (a-data max) ; atom
-          half-max (int (* 0.5 max))]
-      (println half-max)
-      (doseq [left (repeatedly xs #(rand-int half-max))
-              right (repeatedly ys #(+ half-max (rand-int half-max)))]
-         ; (println (str x "," y))
-        (a-join test-data left right))
-      (swap! test-data #(assoc % :all-connections (into (sorted-map) (:all-connections %))))
-      (if (< max 10000)
-        (spit (str "data." max "_" (* xs ys) ".log-it") @test-data))
+    (let [half-max (int (* 0.5 max))] ; bottom half
+      ; e.g. 500 rand Xs each paired with 5 rand Ys in other half
+      (for [left (repeatedly xs #(rand-int half-max))
+            right (repeatedly ys #(+ half-max (rand-int half-max)))]
+        [left right]))))
+
+(def -join-testdata 
+  "e.g. xs=1000 ys=25 max=5000 - not sparse. Connect bottom half to top half (arbitrary)
+   Then => (for [a (range 0 10) b (range 4990 5000) :when (a-connected-lazy at a b))] [a b])"
+  (fn [test-data join-f log-f pairs xs ys max]
+    (let [start (. System currentTimeMillis)]
+          ; (a-join test-data left right)
+      (uu/fast-join join-f test-data pairs)
+      (println (str "Elapsed: " (- (. System currentTimeMillis) start) 
+                    " for " max))
       test-data)))
 
-(def a-check
+;; a-maketestdata
+(def a-maketestdata 
+  (fn [xs ys max]
+    (let [test-data (a-data max)
+          file (str "data." max "_" (* xs ys) ".log-it")
+          pairs (-make-low-high-pairs xs ys max)]
+      (-join-testdata test-data -join pairs xs ys max)
+      (-log-it test-data file xs ys max)
+      test-data)))
+
+(def a-check "abstract function"
   (fn [a-data f]
      (for [n (range (:n @a-data)) 
            :when (f (get-in @a-data [:all-connections n]))] 
@@ -115,3 +148,9 @@
 (def a-checkdense ":when nil?"
   (fn [a-data]
     (a-check a-data nil?)))
+
+
+
+
+
+
