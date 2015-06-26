@@ -1,10 +1,11 @@
 ;; algo1-qg
 ;; "qf"
-(ns demo-may.algo1-qf-nn1
+(ns demo-may.algo1-qu-nnn
   (:require [demo-may.utils-union :as uu])
   )
 
-; q-f quick-find with cost init N, join N (worst), find 1
+; q-u quick-union with cost init N, join N (worst), find N (worst)
+; "tall trees"
 
 (def stats (atom {:runs-ct 1}))
 
@@ -12,32 +13,29 @@
   (fn [n]
     (atom (vec (range 0 n)))))
 
-; doesn't deserve a function
-(comment (def root "return 0-based indexes value (root)"
-           (fn [data i]
-             (get data i))))
-
-(def a-connected "easy"
+; in quick-union, *does* deserve a function
+(def root "return 0-based indexes value (root)"
+  (fn [data i]
+    (loop [i i] 
+      (let [parent-of-i (get data i)]
+        (if (= i parent-of-i)
+          i
+          (recur parent-of-i))))))
+; e.g. (def at (a-maketestdata 5000 5 200000)) 
+; (take 1  (for [a [72] b (range 0 200000) :when (a-connected @at a b)] [a b]))
+(def a-connected "fast if root fast, tree shallow"
   (fn [data a b]
-    (= (get data a) (get data b))))
+    (= (root data a) (root data b))))
 
-;; TODO this should search for all components in vec
-;;  that have current a-root
 (def -join "replace 0-based index's value (new root)"
   (fn [data a b]
-    (let [root-of-a (get data a) ; set all root-of-a to root-of-b
-          root-of-b (get data b)
-          ct (count data)]
-      ; update all a-root's to b-root
-      ; transient/persistent for faster vector updates
-      (loop [t-data (transient data) i 0]
-        (if (= i ct)
-          (persistent! t-data)
-          (let [root-of-i (get t-data i)
-                next-data (if (= root-of-a root-of-i) ; connected
-                            (assoc! t-data i root-of-b)
-                            t-data] 
-            (recur next-data (inc i)))))))))
+    ; "root" is position equal to its value
+    (let [root-of-a (root data a) 
+          root-of-b (root data b)]
+      ; update single a-root to b-root
+      (if (= root-of-a root-of-b)
+        data
+        (assoc data root-of-a root-of-b)))))
 
 ;; TESTING
 
