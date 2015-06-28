@@ -1,4 +1,4 @@
-;; algo1-qg
+;; algo1-qf
 ;; "qf"
 (ns demo-may.algo1-qf-nn1
   (:require [demo-may.utils-union :as uu])
